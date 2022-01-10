@@ -1,8 +1,23 @@
 import copy
+import cv2
+
+OPPOSITES = {
+    "a1": "a2",
+    "a2": "a1",
+    "b1": "b2",
+    "b2": "b1",
+    "c1": "c2",
+    "c2": "c1",
+    "d1": "d2",
+    "d2": "d1"
+}
 
 
 class Piece:
+
     def __init__(self, id_, north, east, south, west):
+        if not north or not east or not south or not west:
+            raise ValueError("Piece must have all sides givin")
         self.north_value = north
         self.east_value = east
         self.south_value = south
@@ -12,9 +27,13 @@ class Piece:
 
 
 class Slot:
-    def __init__(
-        self, piece=None, north=None, east=None, south=None, west=None
-    ) -> None:
+
+    def __init__(self,
+                 piece=None,
+                 north=None,
+                 east=None,
+                 south=None,
+                 west=None) -> None:
         self.north = north
         self.east = east
         self.south = south
@@ -29,28 +48,33 @@ class Slot:
             return
         if self.north:
             if self.north.piece:
-                if opposite(self.north.piece.south_value) != self.piece.north_value:
+                if OPPOSITES[self.north.piece.south_value] \
+                        != self.piece.north_value:
                     return
 
         if self.east:
             if self.east.piece:
-                if opposite(self.east.piece.west_value) != self.piece.east_value:
+                if OPPOSITES[self.east.piece.west_value] \
+                        != self.piece.east_value:
                     return
 
         if self.south:
             if self.south.piece:
-                if opposite(self.south.piece.north_value) != self.piece.south_value:
+                if OPPOSITES[self.south.piece.north_value] \
+                        != self.piece.south_value:
                     return
 
         if self.west:
             if self.west.piece:
-                if opposite(self.west.piece.east_value) != self.piece.west_value:
+                if OPPOSITES[self.west.piece.east_value] \
+                        != self.piece.west_value:
                     return
 
         return True
 
 
 class Board:
+
     def __init__(self):
 
         self.nw = Slot()
@@ -149,9 +173,10 @@ class Board:
 
     def get_rotations(self, piece):
         rots = []
-        rots.append(
-            [piece.north_value, piece.east_value, piece.south_value, piece.west_value]
-        )
+        rots.append([
+            piece.north_value, piece.east_value, piece.south_value,
+            piece.west_value
+        ])
         rots.append(rots[0][1:])
         rots[1].append(rots[0][0])
         rots.append(rots[1][1:])
@@ -162,35 +187,19 @@ class Board:
         return rots
 
 
-def opposite(value):
-    opposites = {
-        "a1": "a2",
-        "a2": "a1",
-        "b1": "b2",
-        "b2": "b1",
-        "c1": "c2",
-        "c2": "c1",
-        "d1": "d2",
-        "d2": "d1",
-    }
-    return opposites[value]
-
-
 def solve(board, available, slot=0):
+
     if slot == 9:
         print("Solution Found!")
-        answer = [
-            (
-                slot.piece.id_,
-                slot.piece.north_value,
-                slot.piece.east_value,
-                slot.piece.south_value,
-                slot.piece.west_value,
-            )
-            for slot in board.slots
-        ]
+        answer = [(
+            slot.piece.id_,
+            slot.piece.north_value,
+            slot.piece.east_value,
+            slot.piece.south_value,
+            slot.piece.west_value,
+        ) for slot in board.slots]
         for x in range(0, 9, 3):
-            print(answer[x : x + 3])
+            print(answer[x:x + 3])
         return True
     tried = []
     for piece in available[:]:
@@ -223,8 +232,8 @@ pieces = [
     Piece(9, "", "", "", ""),
 ]
 
-
 iteration = 0
 
 board = Board()
-solve(board, pieces)
+if not solve(board, pieces):
+    print("Solution not found")
