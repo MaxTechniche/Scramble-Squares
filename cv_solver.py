@@ -1,5 +1,4 @@
 import copy
-import cv2
 
 OPPOSITES = {
     "a1": "a2",
