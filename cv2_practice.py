@@ -8,7 +8,7 @@ def draw_contours(im, contours, file_name=None):
     # Draw rectangles and write an image
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
-        cv2.rectangle(im, (x, y), (x + w, y + h), 100, 1)
+        cv2.rectangle(im, (x, y), (x + w, y + h), 100, 2)
     file_name = file_name or 'processed_image.png'
     cv2.imwrite(file_name, im)
 
@@ -34,7 +34,7 @@ def contours(im):
 
 
 def print_areas():
-    for t in ("Eroded:", "Dilated:", "Regular:"):
+    for t in ("Regular:", "Eroded:", "Dilated:", ):
         yield t
 
 
@@ -42,24 +42,16 @@ area_names = print_areas()
 
 
 def contour_area(contour):
-    vals = []
-    for point in contour:
-        vals.append((point[0][0], point[0][1]))
-    x_min = min(vals, key=lambda x: x[0])[0]
-    x_max = max(vals, key=lambda x: x[0])[0]
-    y_min = min(vals, key=lambda x: x[1])[1]
-    y_max = max(vals, key=lambda x: x[1])[1]
-
-    print(x_min, y_min, x_max, y_max)
-    area = (x_max - x_min) * (y_max - y_min)
-    return area
+    x, y, w, h = cv2.boundingRect(contour)
+    print(x, y, w, h)
+    return w * h
 
 
 def contours_similar(largest_contours):
+    print(next(area_names))
 
     contour_areas = [contour_area(x) for x in largest_contours]
     average_area = sum(contour_areas) / 9
-    print(next(area_names))
     print(contour_areas, average_area)
     for rect in contour_areas:
         diff = abs(rect - average_area)
@@ -76,7 +68,7 @@ def get_ordered_points(largest_contours, get_prime_corner: bool = False):
         points.append((rect, y, x))
 
     # Sort rectangles by y position in image
-    points.sort(key=lambda x: x[1])
+    points.sort(key=lambda r: r[1])
 
     # Loop through and sort the three different rows of rectangles
     for x in range(0, len(points), 3):
@@ -99,6 +91,7 @@ def save_rectangles(im, largest_contours):
     for i, contour in enumerate(largest_contours, 1):
         x, y, w, h = cv2.boundingRect(contour)
         rect = im[y:y + h, x:x + w]
+        print(rect.shape)
         # rect = cv2.resize(rect, (100, 100))
         cv2.imwrite('squares/square_' + str(i) + '.png', rect)
 
@@ -107,20 +100,21 @@ def best_contours(im, kernel):
     largest_contours = contours(im)
     # If the contours of the current image are not similar in size
     if not contours_similar(largest_contours):
+        draw_contours(im, largest_contours, '1_binary_image.png')
+        save_rectangles(im, largest_contours)
         # erode the image
         eroded_im = erode(im, kernel)
         eroded_contours = contours(eroded_im)
         # If the contours are still not similar
         if not contours_similar(eroded_contours):
-            draw_contours(eroded_im, eroded_contours, '1_eroded_image.png')
+            draw_contours(eroded_im, eroded_contours, '2_eroded_image.png')
             # dilate instead
             dilated_im = dilate(im, kernel)
             dilated_contours = contours(dilated_im)
             # If they are still not similar, raise error
             if not contours_similar(dilated_contours):
                 draw_contours(dilated_im, dilated_contours,
-                              '2_dilated_image.png')
-                draw_contours(im, largest_contours, '3_binary_image.png')
+                              '3_dilated_image.png')
                 raise AssertionError(
                     "Unsuccessful in finding rectagles of similar size.")
 
@@ -145,6 +139,8 @@ def get_squares(file_name: str, kernel: np.array = None):
 
     # Invert image
     im = cv2.bitwise_not(im)
+
+    print(im.shape)
 
     largest_contours = best_contours(im, kernel)
     largest_contours = get_ordered_points(largest_contours)
