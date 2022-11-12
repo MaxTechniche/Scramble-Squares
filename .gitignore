@@ -4,3 +4,7 @@
 squares/
 .vscode/
 DS_Store
+lib/
+
+bin/
+.DS_Store

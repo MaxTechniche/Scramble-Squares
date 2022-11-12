@@ -1,5 +1,6 @@
 import cv2
 import os
+import shutil
 import sys
 import numpy as np
 
@@ -34,7 +35,11 @@ def contours(im):
 
 
 def print_areas():
-    for t in ("Regular:", "Eroded:", "Dilated:", ):
+    for t in (
+            "Regular:",
+            "Eroded:",
+            "Dilated:",
+    ):
         yield t
 
 
@@ -43,19 +48,15 @@ area_names = print_areas()
 
 def contour_area(contour):
     x, y, w, h = cv2.boundingRect(contour)
-    print(x, y, w, h)
     return w * h
 
 
 def contours_similar(largest_contours):
-    print(next(area_names))
-
     contour_areas = [contour_area(x) for x in largest_contours]
     average_area = sum(contour_areas) / 9
-    print(contour_areas, average_area)
     for rect in contour_areas:
         diff = abs(rect - average_area)
-        if diff > .25 * average_area:
+        if diff > .10 * average_area:
             return
     return True
 
@@ -91,30 +92,39 @@ def save_rectangles(im, largest_contours):
     for i, contour in enumerate(largest_contours, 1):
         x, y, w, h = cv2.boundingRect(contour)
         rect = im[y:y + h, x:x + w]
-        print(rect.shape)
-        # rect = cv2.resize(rect, (100, 100))
+        rect = cv2.resize(rect, (500, 500))
         cv2.imwrite('squares/square_' + str(i) + '.png', rect)
 
 
 def best_contours(im, kernel):
+    # Remove previous
+    if os.path.exists('squares'):
+        shutil.rmtree('squares')
+    if os.path.exists('1_binary_image.png'):
+        os.remove('1_binary_image.png')
+    if os.path.exists('2_eroded_image.png'):
+        os.remove('2_eroded_image.png')
+    if os.path.exists('3_dilated_image.png'):
+        os.remove('3_dilated_image.png')
+    if os.path.exists('processed_image.png'):
+        os.remove('processed_image.png')
+
     largest_contours = contours(im)
+    draw_contours(im, largest_contours, '1_binary_image.png')
     # If the contours of the current image are not similar in size
     if not contours_similar(largest_contours):
-        draw_contours(im, largest_contours, '1_binary_image.png')
-        save_rectangles(im, largest_contours)
         # erode the image
         eroded_im = erode(im, kernel)
         eroded_contours = contours(eroded_im)
+        draw_contours(eroded_im, eroded_contours, '2_eroded_image.png')
         # If the contours are still not similar
         if not contours_similar(eroded_contours):
-            draw_contours(eroded_im, eroded_contours, '2_eroded_image.png')
             # dilate instead
             dilated_im = dilate(im, kernel)
             dilated_contours = contours(dilated_im)
+            draw_contours(dilated_im, dilated_contours, '3_dilated_image.png')
             # If they are still not similar, raise error
             if not contours_similar(dilated_contours):
-                draw_contours(dilated_im, dilated_contours,
-                              '3_dilated_image.png')
                 raise AssertionError(
                     "Unsuccessful in finding rectagles of similar size.")
 
@@ -123,6 +133,44 @@ def best_contours(im, kernel):
             largest_contours = eroded_contours
 
     return largest_contours
+
+
+def save_slices(im, s_num, slice_width=.15, buffer=.05, length_buffer=.25):
+
+    im_size = im.shape
+    slice_width = int(im_size[0] * slice_width)
+    buffer = int(im_size[0] * buffer)
+    length_buffer = int(im_size[0] * length_buffer)
+
+    top = im[buffer:(slice_width + buffer), length_buffer:-length_buffer]
+    cv2.imwrite(f'squares/square_{s_num}_a.png', top)
+    right = im[length_buffer:-length_buffer, -(slice_width + buffer):-buffer]
+    right = np.rot90(right)
+    cv2.imwrite(f'squares/square_{s_num}_b.png', right)
+    bottom = im[-(slice_width + buffer):-buffer, length_buffer:-length_buffer]
+    bottom = np.rot90(bottom, k=2)
+    cv2.imwrite(f'squares/square_{s_num}_c.png', bottom)
+    left = im[length_buffer:-length_buffer, buffer:(slice_width + buffer)]
+    left = np.rot90(left, k=3)
+    cv2.imwrite(f'squares/square_{s_num}_d.png', left)
+
+
+def squares_exist():
+    for s in range(1, 10):
+        if not os.path.exists(f"squares/square_{s}.png"):
+            raise FileNotFoundError(f"Square {s} was not found.")
+    return True
+
+
+def split_squares():
+    if not squares_exist():
+        raise AssertionError("""How did you receive this error?  \
+            Squares were not found, but you've chosen to go on?""")
+
+    for square in os.listdir('squares'):
+        s_num = square[-5]
+        im = cv2.imread(f'squares/{square}')
+        save_slices(im, s_num)
 
 
 def get_squares(file_name: str, kernel: np.array = None):
@@ -134,7 +182,8 @@ def get_squares(file_name: str, kernel: np.array = None):
 
     # Convert to grayscale and the apply threshold (black and white)
     im = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
-    im = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+    # im = cv2.GaussianBlur(im, (5, 5), 0)
+    im = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                cv2.THRESH_BINARY, 11, 2)
 
     # Invert image
@@ -149,6 +198,8 @@ def get_squares(file_name: str, kernel: np.array = None):
 
     # Write the original image with drawn rectangles to a new image
     draw_contours(original, largest_contours)
+
+    split_squares()
 
 
 def main():
