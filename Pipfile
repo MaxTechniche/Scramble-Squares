@@ -4,8 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-opencv-contrib-python = "*"
 matplotlib = "*"
+opencv-python = "*"
 
 [dev-packages]
 flake8 = "*"
