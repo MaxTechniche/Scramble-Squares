@@ -11,6 +11,11 @@ from pprint import pprint
 from itertools import product
 
 
+
+# TODO - Make a function that pairs groups of contours together
+# TODO - Improve template matching function
+
+
 def draw_contours(im, contours, file_name=None):
     # Draw rectangles and write an image
     for contour in contours:
@@ -33,11 +38,52 @@ def erode(im, kernel):
 
 def contours(im):
     # Find rectangles in image
-    contours, _ = cv2.findContours(im, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_KCOS)
+    image_size = im.shape
+    image_area = image_size[0] * image_size[1]
+    contours, _ = cv2.findContours(im, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    contours = list(contours)
+    contours = sorted(contours, key=lambda x: cv2.contourArea(x))[-100:]
+    
+    while True:
+        for i, contour in enumerate(contours):
+            if cv2.contourArea(contour) > image_area / 9:
+                contours.pop(i)
+                break
+            elif cv2.contourArea(contour) < image_area / 100:
+                contours.pop(i)
+                break
+        else:
+            break
+    
+    while True:
+        brake = False
+        for i, contour1 in enumerate(contours):
+            x1, y1, w1, h1 = cv2.boundingRect(contour1)
+            center1 = (x1 + w1 / 2, y1 + h1 / 2)
+            for j, contour2 in enumerate(contours):
+                if i == j:
+                    continue
+                # Get the center of the contour
+                x2, y2, w2, h2 = cv2.boundingRect(contour2)
+                center2 = (x2 + w2 / 2, y2 + h2 / 2)
+                if center1[0] > x2 and center1[0] < x2 + w2 and center1[1] > y2 and center1[1] < y2 + h2:
+                    contours.pop(i)
+                    brake = True
+                elif center2[0] > x1 and center2[0] < x1 + w1 and center2[1] > y1 and center2[1] < y1 + h1:
+                    contours.pop(j)
+                    brake = True
+                if brake:
+                    break
+            if brake:
+                break
+                
+        else:
+            break
 
-    # Select only 9 largest rectangles
-    largest_contours = sorted(contours, key=lambda x: cv2.contourArea(x))[-9:]
-    return largest_contours
+    if len(contours) < 9:
+        raise AssertionError("Program did not find 9 contours.")
+
+    return contours[-9:]
 
 
 def print_areas():
@@ -89,7 +135,7 @@ def get_ordered_points(largest_contours, get_prime_corner: bool = False):
     return [rect[0] for rect in points]
 
 
-def save_rectangles(im, largest_contours, img_resize=100):
+def save_rectangles(im, largest_contours, img_resize=None):
     # Make sure the squares directory exists
     if not os.path.exists('squares/'):
         os.mkdir('squares')
@@ -98,7 +144,8 @@ def save_rectangles(im, largest_contours, img_resize=100):
     for i, contour in enumerate(largest_contours, 1):
         x, y, w, h = cv2.boundingRect(contour)
         rect = im[y:y + h, x:x + w]
-        rect = cv2.resize(rect, (img_resize, img_resize))
+        if img_resize is not None:
+            rect = cv2.resize(rect, (img_resize, img_resize))
         cv2.imwrite('squares/square_' + str(i) + '.png', rect)
 
 
@@ -371,7 +418,6 @@ def get_tile_side_rotations(groups):
             colors["average"][f'{num}_{letter}'] = np.average([np.average(r), np.average(g), np.average(b)])
             colors["group"][f'{num}_{letter}'] = i
             
-            # exit()
             
     for color in colors:
         if color != "group":
@@ -386,8 +432,8 @@ def get_tile_side_rotations(groups):
         for group in range(8):
             plt.boxplot([colors[color][tile] for tile in colors[color] if colors["group"][tile] == group], positions=[group])
     plt.savefig('boxplot.png')
-    exit()
-            
+    
+    return tile_side_rotations
 
 
 def pair_groups(groups, tile_side_rotations: dict = None):
@@ -399,17 +445,27 @@ def pair_groups(groups, tile_side_rotations: dict = None):
         'd': 3
     }
     
-    tile_side_rotations = get_tile_side_rotations(groups)
+    tile_side_rotations = {}
+    for num in range(1, 10):
+        for rot, letter in zip(range(1, 5), ('b', 'c', 'd', 'a')):
+            tile = cv2.imread(f'squares/square_{num}.png')
+            for _ in range(rot):
+                tile = cv2.rotate(tile, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            tile_side_rotations[(int(num), letter, rot)] = tile[:tile.shape[0] // 3, tile.shape[1] // 3:-tile.shape[1] // 3]
         
     group_colors = {}
     
-    for group in groups:
+    group_averages = []
+    for i, group in enumerate(groups, 1):
         color_averages = []
         for tile in group:
             num, letter = tile.split('_')
             rot = codes[letter]
             color_averages.append(np.average(tile_side_rotations[(int(num), letter, rot)]))
-        print(mean(color_averages))
+        group_averages.append((i, mean(color_averages)))
+    
+    group_averages = sorted(group_averages, key=lambda x: x[1])
+    pprint(group_averages)
         
     
 def print_colors(file_name):
@@ -449,6 +505,9 @@ def print_colors(file_name):
 class MovedFile(Exception):
     pass       
 
+class FoundMatches(Exception):
+    message = "Found matches"
+
 
 def main(file_name, files):
     args = sys.argv[1:]
@@ -470,48 +529,56 @@ def main(file_name, files):
     kernals = [np.ones((i, i), np.uint8) for i in range(1, 10, 2)]
     thresh_block_sizes = range(3, 30, 2)
     
-    det_thresholds = range(95, 39, -5)
+    det_thresholds = range(95, 69, -5)
     
     tile_side_rotations = None
+    groups = None
 
     bin_thresh = 255
     # for bin_thresh in bin_thresholds:
-    for img_resize in range(100, 501, 50):
-        
-        for thresh_block_size in thresh_block_sizes:
-            for kernel in kernals:
-                print(img_resize, thresh_block_size, kernel.shape, end=' ')
-                try:
-                    
-                    get_squares(file_name, bin_thresh=255, kernel=kernel, img_resize=img_resize)
-                    
-                    
-                    for det_thresh in det_thresholds:
-                        det_thresh /= 100
-                        print(det_thresh)
-                        matches, tile_side_rotations = match_templates(file_name, det_thresh=det_thresh, files=files)
+    try:
+        for img_resize in (None,):
+            
+            for thresh_block_size in thresh_block_sizes:
+                for kernel in kernals:
+                    print(img_resize, thresh_block_size, kernel.shape, end=' ')
+                    try:
                         
-                        matches, groups = group_matches(matches=matches)
-                        if matches == 36 and len(groups) == 8:
-                            print('Possible good match parameters found.')
-                            print('bin_thresh:', bin_thresh)
-                            print('thresh_block_size:', thresh_block_size) 
-                            print('kernel.shape:', kernel.shape)
-                            print('det_thresh:', det_thresh)
-                            print('Groups:', groups)
-                            with open('possible_solutions.txt', 'a') as f:
-                                f.write(file_name + '\n')
-                                f.write(f'bin_thresh: {bin_thresh}\n')
-                                f.write(f'thresh_block_size: {thresh_block_size}\n')
-                                f.write(f'kernel.shape: {kernel.shape}\n')
-                                f.write(f'det_thresh: {det_thresh}\n')
-                                f.write(f'Groups: {groups}\n\n')
-                            pair_groups(groups, tile_side_rotations)
-                except (MovedFile, AssertionError) as e:
-                    print(e)
+                        get_squares(file_name, bin_thresh=255, kernel=kernel, img_resize=img_resize)
+                        
+                        for det_thresh in det_thresholds:
+                            try:
+                                det_thresh /= 100
+                                print(det_thresh)
+                                matches, tile_side_rotations = match_templates(file_name, det_thresh=det_thresh, files=files)
+                                
+                                matches, groups = group_matches(matches=matches)
+                                if matches == 36 and len(groups) == 8:
+                                    print('Possible good match parameters found.')
+                                    print('bin_thresh:', bin_thresh)
+                                    print('thresh_block_size:', thresh_block_size) 
+                                    print('kernel.shape:', kernel.shape)
+                                    print('det_thresh:', det_thresh)
+                                    print('Groups:', groups)
+                                    with open('possible_solutions.txt', 'a') as f:
+                                        f.write(file_name + '\n')
+                                        f.write(f'bin_thresh: {bin_thresh}\n')
+                                        f.write(f'thresh_block_size: {thresh_block_size}\n')
+                                        f.write(f'kernel.shape: {kernel.shape}\n')
+                                        f.write(f'det_thresh: {det_thresh}\n')
+                                        f.write(f'Groups: {groups}\n\n')
+                                    raise FoundMatches
+                            except AssertionError as e:
+                                print(e)
+                    except (MovedFile, AssertionError) as e:
+                        print(e)
+    except FoundMatches as fm:
+        if groups is not None and tile_side_rotations is not None:
+            pair_groups(groups, tile_side_rotations)
+
 
 if __name__ == "__main__":
-    file_name = 'planets.jpg'
+    file_name = 'snowflakes.jpg'
     files = False
     for f in glob.glob('square_*'):
         os.remove(f)
